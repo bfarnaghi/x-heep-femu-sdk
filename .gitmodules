@@ -1,0 +1,3 @@
+[submodule "sw/riscv/lib/tflite-micro"]
+	path = sw/riscv/lib/tflite-micro
+	url = https://github.com/cad-polito-it/tflite-micro-x-heep

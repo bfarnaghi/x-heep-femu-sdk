@@ -40,6 +40,9 @@ INC_FOLDERS_GCC    = $(addprefix -I ,$(INC_FOLDERS))
 %.dis: %.elf
 	$(RISCV_EXE_PREFIX)objdump -D $< > $@
 
+libtflm.a:
+	$(MAKE) -C lib/tflite-micro RISCV=$(RISCV) X_HEEP_LIB_FOLDER=../../lib
+
 apps/hello_world/hello_world.elf: apps/hello_world/hello_world.c
 	$(RISCV_EXE_PREFIX)gcc -march=rv32imc -o $@ -w -Os -g -nostdlib \
 		$(CUSTOM_GCC_FLAGS) \
@@ -71,6 +74,41 @@ apps/pmp_test/pmp_test.elf: apps/pmp_test/pmp_test.c
 		-Wl,-Map=apps/pmp_test/pmp_test.map \
 		-L $(RISCV)/riscv32-unknown-elf/lib \
 		-lc -lm -lgcc -flto -ffunction-sections -fdata-sections -specs=nano.specs
+
+apps/tflite_scpi/tflite_scpi.elf: libtflm.a
+	$(MAKE) -C apps/tflite_scpi RISCV=$(RISCV) X_HEEP_LIB_FOLDER=../../lib
+
+apps/flash_read_mmap/flash_read_mmap.elf: apps/flash_read_mmap/flash_read_mmap.c
+	$(RISCV_EXE_PREFIX)gcc -march=rv32imc -o $@ -w -Os -g -nostdlib \
+		$(CUSTOM_GCC_FLAGS) \
+		-DHOST_BUILD \
+		-T link/link.ld \
+		-I $(RISCV)/riscv32-unknown-elf/include \
+		$(INC_FOLDERS_GCC) \
+		-static \
+		$(LIB_CRT) \
+		$^ $(LIB_RUNTIME) \
+		$(LIB_BASE) \
+		$(LIB_DRIVERS) \
+		-Wl,-Map=apps/flash_read_mmap/flash_read_mmap.map \
+		-L $(RISCV)/riscv32-unknown-elf/lib \
+		-lc -lm -lgcc -flto -ffunction-sections -fdata-sections -specs=nano.specs
+
+apps/uart_echo/uart_echo.elf: apps/uart_echo/uart_echo.c
+	$(RISCV_EXE_PREFIX)gcc -march=rv32imc -o $@ -w -Os -g -nostdlib \
+		$(CUSTOM_GCC_FLAGS) \
+                -DHOST_BUILD \
+                -T link/link.ld \
+                -I $(RISCV)/riscv32-unknown-elf/include \
+                $(INC_FOLDERS_GCC) \
+                -static \
+                $(LIB_CRT) \
+                $^ $(LIB_RUNTIME) \
+                $(LIB_BASE) \
+                $(LIB_DRIVERS) \
+                -Wl,-Map=apps/uart_echo/uart_echo.map \
+                -L $(RISCV)/riscv32-unknown-elf/lib \
+                -lc -lm -lgcc -flto -ffunction-sections -fdata-sections -specs=nano.specs
 
 apps/virtual_flash_write/virtual_flash_write.elf: apps/virtual_flash_write/virtual_flash_write.c
 	$(RISCV_EXE_PREFIX)gcc -march=rv32imc -o $@ -w -Os -g -nostdlib \
