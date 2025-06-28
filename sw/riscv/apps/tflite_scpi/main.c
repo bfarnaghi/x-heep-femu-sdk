@@ -19,11 +19,50 @@ volatile uart_t uart;
 volatile scpi_t scpi_context;
 volatile int exit_scpi = 0;
 
-scpi_result_t __attribute__((noinline)) InferExample(scpi_t * context) {
+scpi_result_t __attribute__((noinline)) InferExample(scpi_t * context) { 
   const char *out;
   size_t len;
   const int8_t *data = lenet_input_data;
+    
+  /* ── 1. enable cycle & instret counters for lower priv-levels (if ever needed) ── */
+    __asm__ volatile (
+        "li   t0, 0x5\n"          /* bit0 = CY, bit2 = IR                    */
+        "csrs mcounteren, t0\n"   /* set bits, leave any others untouched    */
+    );
+  /* ── 2. snapshot “start” values ── */
+    uint32_t start_c_lo, start_c_hi;
+    uint32_t start_i_lo, start_i_hi;
+    __asm__ volatile (
+        "csrr %0, mcycle      \n"
+        "csrr %1, mcycleh     \n"
+        "csrr %2, minstret    \n"
+        "csrr %3, minstreth   \n"
+        : "=r"(start_c_lo), "=r"(start_c_hi),
+          "=r"(start_i_lo), "=r"(start_i_hi)
+    );
+  /* ── 3. run the inference ── */  
   int a = infer((const char *) data, lenet_input_data_size, &out, &len);
+  /* ── 4. snapshot “end” values ── */
+    uint32_t end_c_lo, end_c_hi;
+    uint32_t end_i_lo, end_i_hi;
+    __asm__ volatile (
+        "csrr %0, mcycle      \n"
+        "csrr %1, mcycleh     \n"
+        "csrr %2, minstret    \n"
+        "csrr %3, minstreth   \n"
+        : "=r"(end_c_lo), "=r"(end_c_hi),
+          "=r"(end_i_lo), "=r"(end_i_hi)
+    );
+  /* ── 5. compute 64-bit deltas ── */
+    uint64_t cycles = (((uint64_t)end_c_hi << 32) | end_c_lo) -
+                      (((uint64_t)start_c_hi << 32) | start_c_lo);
+    uint64_t insts  = (((uint64_t)end_i_hi << 32) | end_i_lo) -
+                      (((uint64_t)start_i_hi << 32) | start_i_lo);
+    printf("Cycles:       hi=0x%lx lo=0x%08lx\r\n",
+       (unsigned long)(cycles >> 32), (unsigned long)(cycles & 0xFFFFFFFF));
+    printf("Instructions: hi=0x%lx lo=0x%08lx\r\n",
+       (unsigned long)(insts  >> 32), (unsigned long)(insts  & 0xFFFFFFFF));
+  /* ── 6. original SCPI output ── */  
   if (a == 0) {
     SCPI_ResultArrayInt8(context, (const int8_t *) out, len, SCPI_FORMAT_ASCII);
   } else {
