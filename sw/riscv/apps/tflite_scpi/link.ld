@@ -23,7 +23,7 @@ MEMORY
   ram0 (rwxai) : ORIGIN = 0x00000000, LENGTH = 0x00040000   /* 256 KiB */
   ram1 (rwxai) : ORIGIN = 0x00040000, LENGTH = 0x00040000   /* 256 KiB */
   /* NEW: dedicated user bank */
-  ram2 (rwxai) : ORIGIN = 0x00080000, LENGTH = 0x00020000   /* 128 KiB */
+  ram2 (rwxai) : ORIGIN = 0x00078000, LENGTH = 0x00008000   /* upper 32 KiB for user */
 }
 
 /*
@@ -101,23 +101,6 @@ SECTIONS
   .plt            : { *(.plt) }
   .iplt           : { *(.iplt) }
 */
-
-  /* ----------  USER-MODE COMPARTMENT  -------------------------------- */
-  .user_region ORIGIN(ram2) :
-  {
-    PROVIDE(__user_start = .);
-
-    *(.user_text)          /* any function you tag goes here  */
-    *(.user_rodata)        /* weights / const tables for user */
-    *(.user_data)          /* buffers the user must see       */
-
-    . = ALIGN(16);
-    PROVIDE(__user_stack_top = . + 0x2000);   /* 8 KiB user stack  */
-    . = __user_stack_top;
-
-    PROVIDE(__user_end = .);
-  } > ram2
-  /* ---------------------------------------------------------------- */
 
   /* the bulk of the program: main, libc, functions etc. */
   .text           :
@@ -349,6 +332,37 @@ SECTIONS
    PROVIDE(_sp = .);
    PROVIDE(__stack_end = .);
   } >ram1
+
+    /* ----------  USER-MODE COMPARTMENT  -------------------------------- */
+/* ----------  USER-MODE COMPARTMENT  ------------------------- */
+.user_region ORIGIN(ram2) :
+{
+  PROVIDE(__user_start       = .);
+  PROVIDE(__user_text_start  = .);
+
+  *(.user_text)
+
+  PROVIDE(__user_text_end    = .);
+  PROVIDE(__user_rodata_start = .);
+
+  *(.user_rodata)
+
+  PROVIDE(__user_rodata_end  = .);
+  PROVIDE(__user_data_start  = .);
+
+  *(.user_data)
+
+  PROVIDE(__user_data_end    = .);
+
+  . = ALIGN(16);
+  PROVIDE(__user_stack_top   = . + 0x2000); /* 8 KiB user stack  */
+  . = __user_stack_top;
+
+  PROVIDE(__user_end         = .);          /* absolute end      */
+} > ram2
+/* ----------------------------------------------------------- */
+
+
 
   /* Stabs debugging sections.  */
   .stab          0 : { *(.stab) }

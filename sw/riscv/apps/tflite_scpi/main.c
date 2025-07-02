@@ -24,18 +24,14 @@ __attribute__((section(".user_data")))
 static int8_t  g_user_result[16];
 __attribute__((section(".user_data")))
 static uint8_t g_user_input[lenet_input_data_size];
-/* ------------ secure-service helper ---------------------------- */
-static void do_secure_infer(const uint8_t *in, size_t len)
-{
-    const char *out; size_t out_len;
-    infer((const char*)in, len, &out, &out_len);
-
-    size_t n = out_len < sizeof g_user_result ?
-               out_len : sizeof g_user_result;
-    memcpy(g_user_result, out, n);
-
-    register size_t rc __asm__("a0") = n;   /* leave retval for asm */
-    (void)rc;
+/* linker symbols exported above */
+extern uint8_t __user_start, __user_end;
+extern uint8_t __user_stack_top;
+/* -------------------------------------------------------------- */
+void __attribute__((noinline)) SCPI_from_user(const char *buf, size_t len) {
+  SCPI_Input(&scpi_context, buf, len);
+  SCPI_Input(&scpi_context, "\r\n", 2);
+  SCPI_Flush(&scpi_context);
 }
 /* ------- minimal ECALL-from-U trap handler (M-mode) --------- */
 __attribute__((naked))
@@ -48,11 +44,11 @@ void m_trap_handler(void)
         "bnez  a7, bad\n"             /* only service ID 0 */
 
         /* a0 = ptr, a1 = len */
-        "call  %[c]\n"                /* run secure infer   */
+        "call  %[c]\n"                /* run SCPI_from_user   */
 
         /* return to user */
         "csrr  t0, mstatus\n"
-        /* set MPP=00 (U)     */
+        /* MPP = 00 (U-mode)*/
         "li    t1, ~(3<<11)\n"     // Load the mask into t1
         "and   t0, t0, t1\n"       // Perform the AND
         "csrw  mstatus, t0\n"
@@ -61,13 +57,11 @@ void m_trap_handler(void)
     "bad:\n"
         "j should_not_happen\n"
         :
-        : [c]"i"(do_secure_infer)
+        : [c]"i"(SCPI_from_user)
         : "memory"
     );
 }
-
 /* -------------------------------------------------------------- */
-
 scpi_result_t __attribute__((noinline)) InferExample(scpi_t * context) { 
   const char *out;
   size_t len;
@@ -191,6 +185,7 @@ scpi_error_t scpi_error_queue_data[SCPI_ERROR_QUEUE_SIZE];
 
 static int modifier = 0;
 
+__attribute__((section(".user_text")))
 size_t __attribute__((noinline)) uart_gets(uart_t *uart, char *buf, size_t len) {
     size_t i = 0;
     while (i < len - 1) {
@@ -229,49 +224,56 @@ size_t __attribute__((noinline)) uart_gets(uart_t *uart, char *buf, size_t len) 
 }
 
 __attribute__((section(".user_text")))
-void __attribute__((noinline)) uart_scpi(scpi_t *ctx, uart_t *uart)
-{
-    char cmd[32];
-    printf("Starting SCPI loop (U-mode)…\r\n");
-
-    while (!exit_scpi) {
-
-        /* 1. read one line (command) */
-        size_t n = uart_gets(uart, cmd, sizeof cmd);
-        if (!n) continue;
-
-        /* 2. our custom secure command */
-        if (strcmp(cmd, "NN:INFER:DATA?") == 0) {
-
-            /* ask host to stream raw bytes */
-            printf("Send %u bytes:\r\n", lenet_input_data_size);
-            size_t rx = uart_gets(uart, (char*)g_user_input,
-                                  sizeof g_user_input);
-
-            /* 2b. ECALL to M-mode secure service (ID=0) */
-            register int      svc  __asm__("a7") = 0;
-            register uint8_t *in   __asm__("a0") = g_user_input;
-            register size_t   ilen __asm__("a1") = rx;
-            __asm__ volatile ("ecall" ::: "memory");
-
-            /* 2c. send result back */
-            uart_write(uart, (uint8_t*)g_user_result,
-                              sizeof g_user_result);
-            uart_write(uart, (uint8_t*)"\r\n", 2);
-            continue;
-        }
-
-        /* 3. fallback to normal SCPI interpreter */
-        SCPI_Input(ctx, cmd, n);
-        SCPI_Input(ctx, "\r\n", 2);
-        SCPI_Flush(ctx);
+void __attribute__((noinline)) user_uart_loop(uint8_t *buf, size_t len) {
+  while (!exit_scpi) {
+    size_t n = uart_gets(&uart, (char *)buf, len);
+    if (n > 0) {
+      register uintptr_t a0 __asm__("a0") = (uintptr_t)buf;
+      register uintptr_t a1 __asm__("a1") = n;
+      register uintptr_t a7 __asm__("a7") = 0;  // syscall ID 0
+      __asm__ volatile ("ecall" : : "r"(a0), "r"(a1), "r"(a7));
     }
+  }
+}
+
+__attribute__((section(".user_text")))
+void __attribute__((noinline)) uart_scpi(scpi_t * context, uart_t * uart) {
+  char buffer[2048];
+  printf("Starting SCPI loop...\r\n");
+    uintptr_t user_stack_top = (uintptr_t)&__user_stack_top;
+  uintptr_t user_entry     = (uintptr_t)&user_uart_loop;
+  uintptr_t user_buffer    = (uintptr_t)&g_user_input;
+  uintptr_t user_buf_size  = sizeof(g_user_input);
+
+  __asm__ volatile (
+      "csrr  t0, mstatus\n"
+      "li    t1, ~(3<<11)\n"     // clear MPP bits
+      "and   t0, t0, t1\n"
+      "li    t1, 0\n"            // U-mode = 00
+      "or    t0, t0, t1\n"
+      "csrw  mstatus, t0\n"
+      "csrw  mepc, %0\n"
+      "mv    a0, %1\n"
+      "li    a1, %2\n"
+      "mv    sp, %3\n"
+      "mret\n"
+      :
+      : "r"(user_entry), "r"(user_buffer), "i"(lenet_input_data_size), "r"(user_stack_top)
+      : "t0", "t1", "a0", "a1"
+  );
 }
 
 mmio_region_t mmio_region_from_adr(uintptr_t address) {
   return (mmio_region_t){
       .base = (volatile void *)address,
   };
+}
+/* --- helper ------------------------------------------------------- */
+static inline uintptr_t pmp_napot(uintptr_t base, size_t length_pow2)
+{
+    /*  length_pow2 = exact size, MUST be a power of two ≥ 8
+     *  Returns the value to write to pmpaddr.                      */
+    return (base >> 2) | ((length_pow2 >> 3) - 1);
 }
 
 int main() {
@@ -298,7 +300,7 @@ int main() {
               scpi_input_buffer, SCPI_INPUT_BUFFER_LENGTH,
               scpi_error_queue_data, SCPI_ERROR_QUEUE_SIZE);
 
-  printf("Initialized SCPI\r\n");
+      printf("Initialized x.ruSCPI\r\n");
   // Print available SCPI commands
   printf("Available SCPI commands:\r\n");
   for (int i = 0; scpi_commands[i].pattern != NULL; i++) {
@@ -306,37 +308,44 @@ int main() {
   }
   init_tflite();
   printf("Initialized TFLite\r\n");
-    
-  extern char __user_start[], __user_end[],__user_stack_top[];
-  #define UART_PAGE_BASE   (UART_START_ADDRESS & ~0xFFFu)   /* 4 KiB-aligned */
-  #define UART_PMP_NAPOT   (UART_PAGE_BASE >> 2) | 0x7FF     /* 4 KiB NAPOT */
-
-  uintptr_t user_bottom = (uintptr_t)__user_start >> 2;
-
-  /* PMP0  TOR : deny 0 … user_bottom-1 (R/W/X cleared) */
-  __asm__ volatile ("csrw pmpaddr0,%0" :: "r"(user_bottom));
-  __asm__ volatile ("csrw pmpcfg0, %0" :: "r"(0x08));            /* TOR, no perm */
-
-  /* PMP1  NAPOT (4 KiB) : UART → R|W */
-  __asm__ volatile ("csrw pmpaddr1,%0" :: "r"(UART_PMP_NAPOT));
-  __asm__ volatile ("csrw pmpcfg1,  %0" :: "r"(0x01 | 0x02 | 0x18)); /* R=1 W=1 X=0 A=NAPOT(0b11) */
   
-  __asm__ volatile ("csrw mtvec, %0" :: "r"(&m_trap_handler));
-  __asm__ volatile ("csrs medeleg, %0" :: "r"(1u << 8));   /* bit 8 = ECALL-U */
+    printf("user region start: %p\r\n", &__user_start);
+    printf("user region end  : %p\r\n", &__user_end);
     
-  //uart_scpi(&scpi_context, &uart);
-    extern void uart_scpi(scpi_t*, uart_t*);
-    register uintptr_t pc __asm__("a0") = (uintptr_t)&uart_scpi;
-    register uintptr_t sp __asm__("sp") = (uintptr_t)&__user_stack_top;
+     /* ----------  PMP slot 0 : user sandbox  ---------------------- */
+    uintptr_t user_start = (uintptr_t)&__user_start;
+    uintptr_t user_end   = (uintptr_t)&__user_end;
+    size_t    span       = user_end - user_start;
+    
+    // Next power of two
+    size_t pow2 = 1u << (32 - __builtin_clz(span - 1));
+    // Align base
+    uintptr_t user_base = user_start & ~(pow2 - 1);
 
-    __asm__ volatile (
-        "csrw mepc,%0\n"
-        "csrr t0, mstatus\n"
-        "li   t1, ~(3 << 11)\n"
-        "and  t0, t0, t1\n"   /* MPP = 00 (U) */
-        "csrw mstatus, t0\n"
-        "mret\n"
-        :: "r"(pc) : "memory");
+    // Encode for NAPOT
+    uintptr_t napot = (user_base >> 2) | ((pow2 >> 3) - 1);
+
+    printf("user region start: 0x%lx\r\n", user_start);
+    printf("user region end  : 0x%lx\r\n", user_end);
+    printf("user span = %lu bytes, NAPOT size = 0x%lx, aligned base = 0x%lx\r\n",
+            span, (unsigned long)pow2, (unsigned long)user_base);
+
+    __asm__ volatile ("csrw pmpcfg0,  %0" :: "r"(0x0F));   // RWX
+    __asm__ volatile ("csrw pmpaddr0, %0" :: "r"(napot));
+    
+    uintptr_t base  = user_base;
+    uintptr_t limit = user_base + pow2 - 1;
+    printf("PMP region: 0x%08lx — 0x%08lx\r\n", base, limit);
+
+    /* ----------  PMP slot 1 : UART registers (4 KiB page) --------- */
+    uintptr_t uart_page  = ((uintptr_t)uart.base_addr.base) & ~0xFFFu;
+    uintptr_t napot_uart = pmp_napot(uart_page, 0x1000);
+
+    __asm__ volatile ("csrw pmpcfg1,  %0" :: "r"(0x03));   /* RW  , A=NAPOT */
+    __asm__ volatile ("csrw pmpaddr1, %0" :: "r"(napot_uart));
+
+
+  uart_scpi(&scpi_context, &uart);
 
   return 0;
 }
