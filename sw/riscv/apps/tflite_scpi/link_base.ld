@@ -20,10 +20,8 @@ MEMORY
   /* Our testbench is a bit weird in that we initialize the RAM (thus
      allowing initialized sections to be placed there). Infact we dump all
      sections to ram. */
-  ram0 (rwxai) : ORIGIN = 0x00000000, LENGTH = 0x00040000   /* 256 KiB */
-  ram1 (rwxai) : ORIGIN = 0x00040000, LENGTH = 0x00040000   /* 256 KiB */
-  /* NEW: dedicated user bank */
-  ram2 (rwxai) : ORIGIN = 0x00080000, LENGTH = 0x00020000   /* 128 KiB */
+  ram0 (rwxai) : ORIGIN = 0x00000000, LENGTH = 0x00040000
+  ram1 (rwxai) : ORIGIN = 0x00040000, LENGTH = 0x00040000
 }
 
 /*
@@ -101,23 +99,6 @@ SECTIONS
   .plt            : { *(.plt) }
   .iplt           : { *(.iplt) }
 */
-
-  /* ----------  USER-MODE COMPARTMENT  -------------------------------- */
-  .user_region ORIGIN(ram2) :
-  {
-    PROVIDE(__user_start = .);
-
-    *(.user_text)          /* any function you tag goes here  */
-    *(.user_rodata)        /* weights / const tables for user */
-    *(.user_data)          /* buffers the user must see       */
-
-    . = ALIGN(16);
-    PROVIDE(__user_stack_top = . + 0x2000);   /* 8 KiB user stack  */
-    . = __user_stack_top;
-
-    PROVIDE(__user_end = .);
-  } > ram2
-  /* ---------------------------------------------------------------- */
 
   /* the bulk of the program: main, libc, functions etc. */
   .text           :
