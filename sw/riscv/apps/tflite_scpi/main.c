@@ -15,6 +15,7 @@
 #define SCPI_IDN4 "01-02"
 
 volatile soc_ctrl_t soc_ctrl;
+__attribute__((section(".user_data")))
 volatile uart_t uart;
 volatile scpi_t scpi_context;
 __attribute__((section(".user_data")))
@@ -164,10 +165,11 @@ static char scpi_input_buffer[SCPI_INPUT_BUFFER_LENGTH];
 #define SCPI_ERROR_QUEUE_SIZE 17
 scpi_error_t scpi_error_queue_data[SCPI_ERROR_QUEUE_SIZE];
 
+__attribute__((section(".user_data")))
 static int modifier = 0;
 
-__attribute__((section(".user_text")))
-size_t __attribute__((noinline)) uart_gets(uart_t *uart, char *buf, size_t len) {
+__attribute__((section(".user_text"), aligned(4), noinline))
+size_t __attribute__((noinline)) uart_gets(char *buf, size_t len) {
     size_t i = 0;
     while (i < len - 1) {
         uint8_t c;
@@ -204,10 +206,10 @@ size_t __attribute__((noinline)) uart_gets(uart_t *uart, char *buf, size_t len) 
     return i;
 }
 
-__attribute__((section(".user_text")))
+__attribute__((section(".user_text"), aligned(4), noinline))
 void __attribute__((noinline)) user_uart_loop(uint8_t *buf, size_t len) {
   while (!exit_scpi) {
-    size_t n = uart_gets(&uart, (char *)buf, len);
+    size_t n = uart_gets((char *)buf, len);
     if (n > 0) {
       tee_infer(buf, n);
     }
@@ -216,6 +218,9 @@ void __attribute__((noinline)) user_uart_loop(uint8_t *buf, size_t len) {
 
 void switch_to_user_mode() {
     __asm__ volatile (
+        "la   a0,  buffer      \n"   /* buf  = &buffer[0]  */
+        "li   a1,  2048        \n"   /* len  = 2048        */
+        
         "la t0, user_uart_loop     \n"  // Load user function address
         "csrw mepc, t0             \n"  // Set MEPC 
 
@@ -232,11 +237,11 @@ void switch_to_user_mode() {
     );
 }
 
+__attribute__((section(".user_data")))
+char buffer[2048];
 
 void __attribute__((noinline)) uart_scpi(scpi_t * context, uart_t * uart) {
-  char buffer[2048];
   printf("Starting SCPI loop...\r\n");
-  printf("[Switch to User Mode]\n");
   switch_to_user_mode();
 }
 
@@ -246,69 +251,8 @@ mmio_region_t mmio_region_from_adr(uintptr_t address) {
   };
 }
 
-// Helper to compute PMP NAPOT-encoded address
-static inline uintptr_t napot_encode(uintptr_t base, size_t size_pow2) {
-    return (base >> 2) | ((size_pow2 >> 3) - 1);
-}
-
-#define CSR_MSECCFG 0x747
 void pmp_setup(void)
 {
-//     uint32_t val;
-//     __asm__ volatile ("csrr %0, %1" : "=r"(val) : "i"(CSR_MSECCFG));
-//     printf("mseccfg = 0x%08x\n", val);
-    
-//     __asm__ volatile ("csrw 0x747, 0x4");
-    
-//     __asm__ volatile ("csrr %0, %1" : "=r"(val) : "i"(CSR_MSECCFG));
-//     printf("mseccfg = 0x%08x\n", val);
-    
-    /* ── 0. unlock all entries first ─────────────────────────────── */
-//     __asm__ volatile("csrw pmpcfg0, 0");
-
-//     /* ── 1. exec-only code window (.user_text)  ───────────────────── */
-//     uintptr_t txt_lo  = (uintptr_t)&__user_text_start;
-//     uintptr_t txt_hi  = (uintptr_t)&__user_text_end;     /* exclusive */
-//     size_t    txt_len = txt_hi - txt_lo;
-
-//     size_t pow2       = 1u << (32 - __builtin_clz(txt_len - 1));
-//     uintptr_t txt_base = txt_lo & ~(pow2 - 1);
-//     uintptr_t pmpaddr0 = napot_encode(txt_base, pow2);
-//     printf("[PMP] Writing addr0=0x%08lx\n", pmpaddr0);
-    
-//     __asm__ volatile("csrw pmpaddr0, %0" :: "r"(pmpaddr0));
-
-//     /* cfg0 : L=1, A=**NAPOT** (11), X=1, W=0, R=0  → 0x9C */
-//     const uint8_t cfg0 = 0x1C;   /* 0001 1100 */
-
-//     /* ── 2. RW no-exec data+stack window  (.user_data .. __user_end) ─ */
-//     uintptr_t dat_lo  = (uintptr_t)&__user_data_start;
-//     uintptr_t dat_hi  = (uintptr_t)&__user_end;
-//     size_t    dat_len = dat_hi - dat_lo;
-
-//     pow2         = 1u << (32 - __builtin_clz(dat_len - 1));
-//     uintptr_t dat_base  = dat_lo & ~(pow2 - 1);
-//     uintptr_t pmpaddr1  = napot_encode(dat_base, pow2);
-    
-//     printf("[PMP] Writing addr1=0x%08lx\n", pmpaddr1);
-    
-//     __asm__ volatile("csrw pmpaddr1, %0" :: "r"(pmpaddr1));
-
-//     /* cfg1 : L=1, A=**NAPOT** (11), R=1, W=1, X=0  → 0x9B */
-//     const uint8_t cfg1 = 0x1B;   /* 0001 1011 */
-
-//     /* ── 4. commit all three bytes in one shot ────────────────────── */
-//     uint32_t pmpcfg0 = cfg0 | (cfg1 << 8);
-//     printf("[PMP] Writing cfg0=0x%08x\n", pmpcfg0);
-//     __asm__ volatile("csrw pmpcfg0, %0" :: "r"(pmpcfg0));
-//     __asm__  volatile ("fence.i");
-
-//     /* ── Debug printout ───────────────────────────────────────────── */
-//     printf("[PMP] txt  base=0x%08lx size=0x%lx  cfg0=0x%02x\n",
-//            txt_base, pow2, cfg0);
-//     printf("[PMP] data base=0x%08lx size=0x%lx  cfg1=0x%02x\n",
-//            dat_base, pow2, cfg1);
-    /* Allow RXW in [0x00078000 , 0x00080000) and lock it */
     __asm__ volatile(
         "csrw  pmpcfg0, zero\n\t"          /* disable entry 0 first      */
         "li    t0,   0x1e000\n\t"          /* 0x00078000 >> 2 → bottom   */
@@ -320,17 +264,6 @@ void pmp_setup(void)
         "csrs pmpcfg0, t0\n\t"             /* program **entry 1** cfg    */
         "fence.i\n\t"
     );
-    
-    uint32_t tmp;
-
-    __asm__ volatile ("csrr %0, pmpcfg0" : "=r"(tmp));
-    printf("[CSR] pmpcfg0  = 0x%08x\n", tmp);
-
-    __asm__ volatile ("csrr %0, pmpaddr0" : "=r"(tmp));
-    printf("[CSR] pmpaddr0 = 0x%08x\n", tmp);
-
-    __asm__ volatile ("csrr %0, pmpaddr1" : "=r"(tmp));
-    printf("[CSR] pmpaddr1 = 0x%08x\n", tmp);
 }
 
 int main() {
@@ -357,7 +290,7 @@ int main() {
               scpi_input_buffer, SCPI_INPUT_BUFFER_LENGTH,
               scpi_error_queue_data, SCPI_ERROR_QUEUE_SIZE);
 
-      printf("Initialized x.ruSCPI\r\n");
+  printf("Initialized x.ruSCPI\r\n");
   // Print available SCPI commands
   printf("Available SCPI commands:\r\n");
   for (int i = 0; scpi_commands[i].pattern != NULL; i++) {
@@ -365,8 +298,7 @@ int main() {
   }
   init_tflite();
   printf("Initialized TFLite\r\n");
-  
-  printf("[PMP Setup]\n");
+
   pmp_setup();
 
   uart_scpi(&scpi_context, &uart);
