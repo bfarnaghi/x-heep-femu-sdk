@@ -30,6 +30,7 @@ static void print_exc_msg(const char *msg) {
 
 // Below functions are default weak exception handlers meant to be overriden
 __attribute__((weak)) void handler_exception(void) {
+
   uint32_t mcause;
   exc_id_t exc_cause;
 
@@ -57,6 +58,16 @@ __attribute__((weak)) void handler_exception(void) {
       break;
     case kECall:
       handler_ecall();
+      break;
+    case uECall:
+      uint32_t syscall_id;
+      asm volatile("mv %0, a7" : "=r"(syscall_id));
+      handler_user_ecall(syscall_id);
+      uintptr_t mepc;
+      asm volatile("csrr %0, mepc" : "=r"(mepc));
+      mepc += 4;
+      asm volatile("csrw mepc, %0" :: "r"(mepc));
+      asm volatile("mret");
       break;
     default:
       while (1) {
@@ -194,3 +205,53 @@ __attribute__((weak)) void handler_ecall(void) {
   while (1) {
   }
 }
+
+#include "tee_syscall.h"
+#include "uart.h"
+#include "lenet5_test.h"
+#include <string.h>
+
+// Externally defined shared buffer
+extern int8_t g_user_result[16];  // must be in .user_data
+extern volatile uart_t uart;
+
+__attribute__((weak)) void handler_user_ecall(uint32_t syscall_id) {
+
+  uintptr_t  a0, a1;
+
+  asm volatile("mv %0, a0" : "=r"(a0));
+  asm volatile("mv %0, a1" : "=r"(a1));
+  
+  switch (syscall_id) {
+          
+    case TEE_EC_INFER:
+        const char *input = (const char *)a0;
+        size_t len = (size_t)a1;
+        int8_t *out;
+        size_t out_len;
+        int res = infer(input, len, &out, &out_len);
+        if (res == 0 && out_len <= sizeof(g_user_result)) {
+            memcpy((void *)g_user_result, out, out_len);
+        } else {
+            memset((void *)g_user_result, 0xFF, sizeof(g_user_result));  // error marker
+        }
+        break;
+    
+    case TEE_EC_UART_PUTCHAR: 
+        uart_putchar(&uart, (uint8_t)a0);
+      break;
+        
+    case TEE_EC_UART_GETCHAR: 
+      uint8_t c;
+      uart_getchar(&uart, &c);
+      asm volatile("mv a0, %0" :: "r"(c));  // return value in a0
+      break;
+          
+    default:
+        printf("[M] Unknown syscall ID: %u\n", syscall_id);
+        while (1);
+        break;
+  }
+}
+
+

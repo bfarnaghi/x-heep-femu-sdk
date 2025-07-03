@@ -21,9 +21,10 @@ MEMORY
      allowing initialized sections to be placed there). Infact we dump all
      sections to ram. */
   ram0 (rwxai) : ORIGIN = 0x00000000, LENGTH = 0x00040000   /* 256 KiB */
-  ram1 (rwxai) : ORIGIN = 0x00040000, LENGTH = 0x00040000   /* 256 KiB */
-  /* NEW: dedicated user bank */
-  ram2 (rwxai) : ORIGIN = 0x00078000, LENGTH = 0x00008000   /* upper 32 KiB for user */
+  ram1 (rwxai) : ORIGIN = 0x00040000, LENGTH = 0x00038000   /* 224 KiB */
+  
+  /* NEW — 32 KiB sandbox for user mode */
+  ram2 (rwxai) : ORIGIN = 0x00078000, LENGTH = 0x00008000   /* 32 KiB for user */
 }
 
 /*
@@ -333,37 +334,40 @@ SECTIONS
    PROVIDE(__stack_end = .);
   } >ram1
 
-    /* ----------  USER-MODE COMPARTMENT  -------------------------------- */
-/* ----------  USER-MODE COMPARTMENT  ------------------------- */
+/* ----------  USER-MODE COMPARTMENT  (executes in U-mode) -------------- */
 .user_region ORIGIN(ram2) :
 {
-  PROVIDE(__user_start       = .);
-  PROVIDE(__user_text_start  = .);
+  /* --- code ---------------------------------------------------------- */
+  PROVIDE(__user_start      = .);
+  PROVIDE(__user_text_start = .);
 
-  *(.user_text)
+  *(.user_text .user_text.*)
 
-  PROVIDE(__user_text_end    = .);
+  PROVIDE(__user_text_end   = .);
+
+  /* --- read-only data ------------------------------------------------ */
   PROVIDE(__user_rodata_start = .);
 
-  *(.user_rodata)
+  *(.user_rodata .user_rodata.*)
 
-  PROVIDE(__user_rodata_end  = .);
-  PROVIDE(__user_data_start  = .);
+  PROVIDE(__user_rodata_end = .);
 
-  *(.user_data)
+  /* --- writable data ------------------------------------------------- */
+  PROVIDE(__user_data_start = .);
 
-  PROVIDE(__user_data_end    = .);
+  *(.user_data .user_data.*)
 
+  PROVIDE(__user_data_end   = .);
+
+  /* --- user stack (8 KiB, grows down) -------------------------------- */
   . = ALIGN(16);
-  PROVIDE(__user_stack_top   = . + 0x2000); /* 8 KiB user stack  */
+  PROVIDE(__user_stack_top  = . + 0x2000);
   . = __user_stack_top;
 
-  PROVIDE(__user_end         = .);          /* absolute end      */
-} > ram2
-/* ----------------------------------------------------------- */
-
-
-
+  /* absolute end of sandbox */
+  PROVIDE(__user_end        = .);
+} >ram2
+/* -------------------------------------------------------------------- */
   /* Stabs debugging sections.  */
   .stab          0 : { *(.stab) }
   .stabstr       0 : { *(.stabstr) }

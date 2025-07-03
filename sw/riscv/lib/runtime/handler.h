@@ -1,6 +1,7 @@
 // Copyright lowRISC contributors.
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
+#include <stdint.h>
 
 #ifndef OPENTITAN_SW_DEVICE_LIB_HANDLER_H_
 #define OPENTITAN_SW_DEVICE_LIB_HANDLER_H_
@@ -12,6 +13,7 @@ typedef enum exc_id {
   kBkpt = 3,
   kLoadAccFault = 5,
   kStrAccFault = 7,
+  uECall = 8,
   kECall = 11,
   kIdMax = 31
 } exc_id_t;
@@ -237,5 +239,16 @@ void handler_lsu_fault(void);
  * at link-time by providing an additional non-weak definition.
  */
 void handler_ecall(void);
+
+/**
+ * User-mode exception call handler.
+ *
+ * Called by default implementation of `handler_exception`. If that function is
+ * overriden, this function may not be called.
+ *
+ * `handler.c` provides a weak definition of this symbol, which can be overriden
+ * at link-time by providing an additional non-weak definition.
+ */
+void handler_user_ecall(uint32_t syscall_id);
 
 #endif  // OPENTITAN_SW_DEVICE_LIB_HANDLER_H_
