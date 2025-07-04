@@ -216,13 +216,11 @@ __attribute__((section(".user_text"), aligned(4), noinline))
 void __attribute__((noinline)) user_uart_loop(uint8_t *buf, size_t len) {
   while (!exit_scpi) {
     size_t n = uart_gets((char *)buf, len);
-      tee_uart_putchar('5');
     if (n > 0) {
-        tee_uart_putchar('6');
       tee_infer(buf, n);
-        tee_uart_putchar('7');
     }
   }
+  while (1);
 }
 
 void switch_to_user_mode() {
@@ -234,15 +232,20 @@ void switch_to_user_mode() {
         "csrw mepc, t0             \n"  // Set MEPC 
 
         "la sp, __user_stack_top   \n"  
-        "li t2, 4096               \n"  
-        "add sp, sp, t2            \n"  
+        //"li t2, 4096               \n"  
+        //"add sp, sp, t2            \n"  
 
-        "csrr t1, mstatus          \n"
-        "li t2, ~(3 << 11)         \n"  // Clear MPP (bits 12:11)
-        "and t1, t1, t2            \n"
-        "csrw mstatus, t1          \n"
+        /* Clear MPP, optionally set MPIE */
+        "csrr t0,  mstatus\n"
+        "li   t1, ~(3 << 11)\n"
+        "and  t0, t0, t1\n"
+        "csrw mstatus, t0\n"
 
         "mret                      \n"  
+        
+        :
+        :
+        : "t0", "t1", "memory"
     );
 }
 
@@ -268,11 +271,19 @@ void pmp_setup(void)
         "csrw  pmpaddr0, t0\n\t"
         "li    t0,   0x20000\n\t"          /* 0x00080000 >> 2 → top      */
         "csrw  pmpaddr1, t0\n\t"           /* entry 1 addr               */
-        "li    t0,   0x8f\n\t"             /* TOR | R | W | X | L        */
+        "li    t0,   0x0f\n\t"             /* TOR | R | W | X | L        */
         "slli t0, t0, 8\n\t"
         "csrs pmpcfg0, t0\n\t"             /* program **entry 1** cfg    */
         "fence.i\n\t"
     );
+    uint32_t cfg;
+    __asm__ volatile("csrr %0, pmpcfg0" : "=r"(cfg));
+    printf("pmpcfg0: 0x%08x\n", cfg);
+
+    uint32_t addr0, addr1;
+    __asm__ volatile("csrr %0, pmpaddr0" : "=r"(addr0));
+    __asm__ volatile("csrr %0, pmpaddr1" : "=r"(addr1));
+    printf("pmpaddr0: 0x%08x, pmpaddr1: 0x%08x\n", addr0, addr1);
 }
 
 int main() {

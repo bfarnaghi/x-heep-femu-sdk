@@ -72,9 +72,11 @@ __attribute__((weak)) void handler_exception(void) {
       //---------------------------
       handler_user_ecall(syscall_id,a0,a1);
       //---------------------------
-//       uintptr_t mepc;
-//       asm volatile("csrr %0, mepc" : "=r"(mepc));
-      mepc += 4;
+      uintptr_t mepc;
+      asm volatile("csrr %0, mepc" : "=r"(mepc));
+      uint16_t instr = *(uint16_t *)mepc;  // read instruction at trap address
+      mepc += (instr & 0x3) == 0x3 ? 4 : 2;
+//       mepc += 4;
       asm volatile("csrw mepc, %0" :: "r"(mepc));
       asm volatile("mret");
       break;

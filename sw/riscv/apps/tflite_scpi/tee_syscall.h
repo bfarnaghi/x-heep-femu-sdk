@@ -51,7 +51,7 @@ static inline void tee_infer(const void *buf, size_t len)
 {
     register uint32_t syscall_id __asm__("a7") = TEE_EC_INFER;  
     register const char *buf_ptr __asm__("a0") = buf;
-    register uint32_t len_val __asm__("a1") = len;
+    register uint32_t len_val __asm__("a1") = (uint32_t)len;
 
     __asm__ volatile (
         "ecall"
