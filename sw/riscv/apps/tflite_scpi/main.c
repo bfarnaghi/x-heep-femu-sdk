@@ -83,10 +83,10 @@ scpi_result_t __attribute__((noinline)) InferExample(scpi_t * context) {
                       (((uint64_t)start_c_hi << 32) | start_c_lo);
     uint64_t insts  = (((uint64_t)end_i_hi << 32) | end_i_lo) -
                       (((uint64_t)start_i_hi << 32) | start_i_lo);
-    printf("Cycles:       hi=0x%lx lo=0x%08lx\r\n",
-       (unsigned long)(cycles >> 32), (unsigned long)(cycles & 0xFFFFFFFF));
-    printf("Instructions: hi=0x%lx lo=0x%08lx\r\n",
-       (unsigned long)(insts  >> 32), (unsigned long)(insts  & 0xFFFFFFFF));
+    //printf("Cycles:       hi=0x%lx lo=0x%08lx\r\n",
+       //(unsigned long)(cycles >> 32), (unsigned long)(cycles & 0xFFFFFFFF));
+    //printf("Instructions: hi=0x%lx lo=0x%08lx\r\n",
+       //(unsigned long)(insts  >> 32), (unsigned long)(insts  & 0xFFFFFFFF));
   /* ── 6. original SCPI output ── */  
   if (a == 0) {
     SCPI_ResultArrayInt8(context, (const int8_t *) out, len, SCPI_FORMAT_ASCII);
@@ -104,7 +104,7 @@ scpi_result_t __attribute__((noinline)) InferData(scpi_t * context) {
   const int8_t *scpi_out;
   size_t scpi_len;
   SCPI_ParamArbitraryBlock(context, &scpi_out, &scpi_len, true);
-  printf("Read: %d bytes\r\n", scpi_len);
+  //printf("Read: %d bytes\r\n", scpi_len);
   memcpy(tflite_input_data, scpi_out, scpi_len);
 
   int a = infer((const char *) tflite_input_data, lenet_input_data_size, &out, &out_len);
@@ -276,14 +276,14 @@ void pmp_setup(void)
         "csrs pmpcfg0, t0\n\t"             /* program **entry 1** cfg    */
         "fence.i\n\t"
     );
-    uint32_t cfg;
-    __asm__ volatile("csrr %0, pmpcfg0" : "=r"(cfg));
-    printf("pmpcfg0: 0x%08x\n", cfg);
+//     uint32_t cfg;
+//     __asm__ volatile("csrr %0, pmpcfg0" : "=r"(cfg));
+//     printf("pmpcfg0: 0x%08x\n", cfg);
 
-    uint32_t addr0, addr1;
-    __asm__ volatile("csrr %0, pmpaddr0" : "=r"(addr0));
-    __asm__ volatile("csrr %0, pmpaddr1" : "=r"(addr1));
-    printf("pmpaddr0: 0x%08x, pmpaddr1: 0x%08x\n", addr0, addr1);
+//     uint32_t addr0, addr1;
+//     __asm__ volatile("csrr %0, pmpaddr0" : "=r"(addr0));
+//     __asm__ volatile("csrr %0, pmpaddr1" : "=r"(addr1));
+//     printf("pmpaddr0: 0x%08x, pmpaddr1: 0x%08x\n", addr0, addr1);
 }
 
 int main() {

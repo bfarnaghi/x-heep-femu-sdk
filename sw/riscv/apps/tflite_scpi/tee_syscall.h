@@ -58,6 +58,7 @@ static inline void tee_infer(const void *buf, size_t len)
         :: "r" (syscall_id), "r" (buf_ptr), "r" (len_val)
         : "memory"
     );
+    __asm__ volatile ("nop");
 }
 
 __attribute__((section(".user_text"), aligned(4), noinline))

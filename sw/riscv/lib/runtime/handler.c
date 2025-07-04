@@ -29,7 +29,7 @@ static void print_exc_msg(const char *msg) {
 }
 
 // Below functions are default weak exception handlers meant to be overriden
-__attribute__((weak)) void handler_exception(void) {
+__attribute__((weak, aligned(4))) void handler_exception(void) {
 
   uint32_t mcause;
   exc_id_t exc_cause;
@@ -39,7 +39,7 @@ __attribute__((weak)) void handler_exception(void) {
     
   uintptr_t mepc;
   asm volatile("csrr %0, mepc" : "=r"(mepc));
-
+ 
   switch (exc_cause) {
     case kInstMisa:
       handler_instr_acc_fault();
@@ -76,7 +76,6 @@ __attribute__((weak)) void handler_exception(void) {
       asm volatile("csrr %0, mepc" : "=r"(mepc));
       uint16_t instr = *(uint16_t *)mepc;  // read instruction at trap address
       mepc += (instr & 0x3) == 0x3 ? 4 : 2;
-//       mepc += 4;
       asm volatile("csrw mepc, %0" :: "r"(mepc));
       asm volatile("mret");
       break;
@@ -224,8 +223,6 @@ __attribute__((weak)) void handler_ecall(void) {
 #include <string.h>
 #include "scpi/scpi.h"
 
-// Externally defined shared buffer
-extern int8_t g_user_result[16];  // must be in .user_data
 extern volatile uart_t uart;
 extern volatile scpi_t scpi_context;
 
