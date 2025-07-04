@@ -9,7 +9,7 @@ MAKE               = make
 RISCV              ?= /tools/riscv
 RISCV_EXE_PREFIX   = $(RISCV)/bin/riscv32-unknown-elf-
 
-CUSTOM_GCC_FLAGS   =
+CUSTOM_GCC_FLAGS   = 
 LIB_CRT            = $(wildcard ../../lib/crt/*.S)
 LIB_BASE           = $(wildcard ../../lib/base/*.c)
 LIB_RUNTIME        = $(wildcard ../../lib/runtime/*.c)

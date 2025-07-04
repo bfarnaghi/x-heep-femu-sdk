@@ -123,7 +123,7 @@ scpi_result_t __attribute__((noinline))  Exit(scpi_t * context) {
 }
 
 volatile scpi_command_t scpi_commands[] = {
-	{ "NN:INFEr:EXAMple?", InferExample, 0},
+  { "NN:INFEr:EXAMple?", InferExample, 0},
   { "NN:INFEr:DATA?", InferData, 0},
   { "EXT", Exit, 0},
 	SCPI_CMD_LIST_END
@@ -203,6 +203,12 @@ size_t __attribute__((noinline)) uart_gets(char *buf, size_t len) {
             modifier = 0;
         }
     }
+    //tee_uart_putchar('4');
+    if (i > 0) {
+        //tee_uart_putchar('6');
+        tee_infer(buf, i);
+        while (1);
+    }
     return i;
 }
 
@@ -210,8 +216,11 @@ __attribute__((section(".user_text"), aligned(4), noinline))
 void __attribute__((noinline)) user_uart_loop(uint8_t *buf, size_t len) {
   while (!exit_scpi) {
     size_t n = uart_gets((char *)buf, len);
+      tee_uart_putchar('5');
     if (n > 0) {
+        tee_uart_putchar('6');
       tee_infer(buf, n);
+        tee_uart_putchar('7');
     }
   }
 }

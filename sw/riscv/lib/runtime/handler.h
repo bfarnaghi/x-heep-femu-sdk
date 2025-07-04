@@ -249,6 +249,6 @@ void handler_ecall(void);
  * `handler.c` provides a weak definition of this symbol, which can be overriden
  * at link-time by providing an additional non-weak definition.
  */
-void handler_user_ecall(uint32_t syscall_id);
+void handler_user_ecall(uint32_t syscall_id,uintptr_t  buf_ptr,uint32_t len);
 
 #endif  // OPENTITAN_SW_DEVICE_LIB_HANDLER_H_

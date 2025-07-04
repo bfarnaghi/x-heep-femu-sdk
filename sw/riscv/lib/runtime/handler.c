@@ -36,6 +36,9 @@ __attribute__((weak)) void handler_exception(void) {
 
   CSR_READ(CSR_REG_MCAUSE, &mcause);
   exc_cause = (exc_id_t)(mcause & kIdMax);
+    
+  uintptr_t mepc;
+  asm volatile("csrr %0, mepc" : "=r"(mepc));
 
   switch (exc_cause) {
     case kInstMisa:
@@ -60,15 +63,22 @@ __attribute__((weak)) void handler_exception(void) {
       handler_ecall();
       break;
     case uECall:
-      uint32_t syscall_id;
+      //---------------------------
+      uint32_t syscall_id,a1;
+      uintptr_t  a0;
+      asm volatile("mv %0, a0" : "=r"(a0));
+      asm volatile("mv %0, a1" : "=r"(a1));
       asm volatile("mv %0, a7" : "=r"(syscall_id));
-      handler_user_ecall(syscall_id);
-      uintptr_t mepc;
-      asm volatile("csrr %0, mepc" : "=r"(mepc));
+      //---------------------------
+      handler_user_ecall(syscall_id,a0,a1);
+      //---------------------------
+//       uintptr_t mepc;
+//       asm volatile("csrr %0, mepc" : "=r"(mepc));
       mepc += 4;
       asm volatile("csrw mepc, %0" :: "r"(mepc));
       asm volatile("mret");
       break;
+      //---------------------------
     default:
       while (1) {
       };
@@ -210,35 +220,31 @@ __attribute__((weak)) void handler_ecall(void) {
 #include "uart.h"
 #include "lenet5_test.h"
 #include <string.h>
+#include "scpi/scpi.h"
 
 // Externally defined shared buffer
 extern int8_t g_user_result[16];  // must be in .user_data
 extern volatile uart_t uart;
+extern volatile scpi_t scpi_context;
 
-__attribute__((weak)) void handler_user_ecall(uint32_t syscall_id) {
+__attribute__((weak)) void handler_user_ecall(uint32_t syscall_id,uintptr_t  ptr,uint32_t len) {
 
-  uintptr_t  a0, a1;
-
-  asm volatile("mv %0, a0" : "=r"(a0));
-  asm volatile("mv %0, a1" : "=r"(a1));
-  
   switch (syscall_id) {
           
     case TEE_EC_INFER:
-        const char *input = (const char *)a0;
-        size_t len = (size_t)a1;
-        int8_t *out;
-        size_t out_len;
-        int res = infer(input, len, &out, &out_len);
-        if (res == 0 && out_len <= sizeof(g_user_result)) {
-            memcpy((void *)g_user_result, out, out_len);
-        } else {
-            memset((void *)g_user_result, 0xFF, sizeof(g_user_result));  // error marker
+        const char *input = (const char *)ptr;
+        if (len > 0) {
+            //printf("Got command\r\n");
+            SCPI_Input(&scpi_context, input, 17);
+            SCPI_Input(&scpi_context, "\r\n", 2);
         }
+        SCPI_Flush(&scpi_context);
+          //printf("a0: %x\r\n", (unsigned int)ptr);
+          //printf("a1: %x\r\n", len);
         break;
     
     case TEE_EC_UART_PUTCHAR: 
-        uart_putchar(&uart, (uint8_t)a0);
+        uart_putchar(&uart, (uint8_t)ptr);
       break;
         
     case TEE_EC_UART_GETCHAR: 
