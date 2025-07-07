@@ -28,9 +28,21 @@ static void print_exc_msg(const char *msg) {
   };
 }
 
+
 // Below functions are default weak exception handlers meant to be overriden
 __attribute__((weak, aligned(4))) void handler_exception(void) {
-
+  uint32_t syscall_id;
+  uint32_t   a1;
+  uintptr_t  a0;
+  asm volatile("mv %0, a0" : "=r"(a0));
+  asm volatile("mv %0, a1" : "=r"(a1));
+  asm volatile("mv %0, a7" : "=r"(syscall_id));
+    
+//   uintptr_t  sp;
+//   asm volatile("mv %0, sp" : "=r"(sp));
+//     printf("%lx\r\n",sp);
+    
+    
   uint32_t mcause;
   exc_id_t exc_cause;
 
@@ -83,14 +95,7 @@ __attribute__((weak, aligned(4))) void handler_exception(void) {
         "sw     s10,  4(sp)\n"
         "sw     s11,  0(sp)\n"
         ::: "memory");
-      //---------------------------
-      uint32_t syscall_id;
-      uint32_t   a1;
-      uintptr_t  a0;
-      asm volatile("mv %0, a0" : "=r"(a0));
-      asm volatile("mv %0, a1" : "=r"(a1));
-      asm volatile("mv %0, a7" : "=r"(syscall_id));
-          
+ 
       //---------------------------
       handler_user_ecall(syscall_id,a0,a1);
       //---------------------------
@@ -119,7 +124,7 @@ __attribute__((weak, aligned(4))) void handler_exception(void) {
         "lw     ra,  56(sp)\n"
         "addi   sp,  sp,  60\n"
         ::: "memory");
-          
+
       asm volatile("mret");
       break;
       //---------------------------
@@ -274,10 +279,17 @@ __attribute__((weak)) void handler_user_ecall(uint32_t syscall_id,uintptr_t  ptr
   switch (syscall_id) {
           
     case TEE_EC_INFER:
+        const uint32_t ram2_lo = 0x00078000;
+        const uint32_t ram2_hi = 0x00080000;
+        if ((ptr < ram2_lo) || (ptr + len > ram2_hi)) {
+            printf("[M] Bad user buffer (0x%08lx, len=%u)\r\n", (long)ptr, len);
+            return;                    /* or place error code in a0 */
+        }
+        printf("Len = %u\r\n",len);
         const char *input = (const char *)ptr;
         if (len > 0) {
-            printf("Got command\r\n");
-            SCPI_Input(&scpi_context, input, 17);
+            //printf("Got command\r\n");
+            SCPI_Input(&scpi_context, input, len);
             SCPI_Input(&scpi_context, "\r\n", 2);
         }
         SCPI_Flush(&scpi_context);

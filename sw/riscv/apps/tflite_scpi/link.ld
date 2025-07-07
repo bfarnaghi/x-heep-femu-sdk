@@ -334,39 +334,21 @@ SECTIONS
    PROVIDE(__stack_end = .);
   } >ram1
 
-/* ----------  USER-MODE COMPARTMENT  (executes in U-mode) -------------- */
+/* size of ram2 is 0x2000 (8 KiB) */
 .user_region ORIGIN(ram2) :
 {
-  /* --- code ---------------------------------------------------------- */
-  PROVIDE(__user_start      = .);
-  PROVIDE(__user_text_start = .);
+    PROVIDE(__user_start = .);
 
-  *(.user_text .user_text.*)
+    *(.user_text .user_text.*)
+    *(.user_rodata .user_rodata.*)
+    *(.user_data .user_data.*)
 
-  PROVIDE(__user_text_end   = .);
+    /* dot is somewhere below 0x00078000 + 0x2000 */
+    . = ORIGIN(ram2) + LENGTH(ram2);     /* = 0x00080000 */
+    PROVIDE(__user_stack_top = .);       /* highest valid address */
+    PROVIDE(__user_end       = .);
+} > ram2
 
-  /* --- read-only data ------------------------------------------------ */
-  PROVIDE(__user_rodata_start = .);
-
-  *(.user_rodata .user_rodata.*)
-
-  PROVIDE(__user_rodata_end = .);
-
-  /* --- writable data ------------------------------------------------- */
-  PROVIDE(__user_data_start = .);
-
-  *(.user_data .user_data.*)
-
-  PROVIDE(__user_data_end   = .);
-
-  /* --- user stack (8 KiB, grows down) -------------------------------- */
-  . = ALIGN(16);
-  PROVIDE(__user_stack_top  = . + 0x2000);
-  . = __user_stack_top;
-
-  /* absolute end of sandbox */
-  PROVIDE(__user_end        = .);
-} >ram2
 /* -------------------------------------------------------------------- */
   /* Stabs debugging sections.  */
   .stab          0 : { *(.stab) }

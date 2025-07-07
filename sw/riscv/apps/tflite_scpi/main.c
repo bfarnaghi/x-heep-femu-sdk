@@ -6,6 +6,7 @@
 #include "soc_ctrl.h"
 #include "core_v_mini_mcu.h"
 #include "mmio.h"
+#include "tee_syscall.h"
 
 #define ECHO 1
 
@@ -15,17 +16,16 @@
 #define SCPI_IDN4 "01-02"
 
 volatile soc_ctrl_t soc_ctrl;
-__attribute__((section(".user_data")))
-volatile uart_t uart;
 volatile scpi_t scpi_context;
+/* -------------------------------------------------------------- */
+//__attribute__((section(".user_data")))
+volatile uart_t uart;
+
 __attribute__((section(".user_data")))
 volatile int exit_scpi = 0;
 
-#include "tee_syscall.h"
-extern void tee_infer(const void *buf, size_t len);
-extern void tee_uart_putchar(uint8_t c);         
-extern uint8_t tee_uart_getchar(void);            
-extern void scpi_infer_dispatch(const uint8_t *buf, size_t len);  /* glue: SCPI+infer+send */
+__attribute__((section(".user_data")))
+char buffer[2048];
 
 /* linker symbols exported above */
 extern uint8_t __user_start, __user_end;
@@ -125,8 +125,6 @@ scpi_error_t scpi_error_queue_data[SCPI_ERROR_QUEUE_SIZE];
 
 __attribute__((section(".user_data")))
 static int modifier = 0;
-__attribute__((section(".user_data")))
-uint32_t counters[4];
 
 __attribute__((section(".user_text"), aligned(4), noinline))
 size_t __attribute__((noinline)) user_uart_loop(char *buf, size_t len) {
@@ -184,8 +182,8 @@ void switch_to_user_mode() {
         "la t0, user_uart_loop     \n"  // Load user function address
         "csrw mepc, t0             \n"  // Set MEPC 
 
-        "la sp, __user_stack_top   \n"  /* TODO: Stack doesn't work. return form a functoin -> fault*/
-        "li t2, 4096               \n"  
+        "la sp, __user_stack_top   \n" 
+        "li t2, -16                \n"  
         "add sp, sp, t2            \n"  
         
         /* Clear MPP, optionally set MPIE */
@@ -201,9 +199,6 @@ void switch_to_user_mode() {
         : "t0", "t1", "memory"
     );
 }
-
-__attribute__((section(".user_data")))
-char buffer[2048];
 
 void __attribute__((noinline)) uart_scpi(scpi_t * context, uart_t * uart) {
   printf("Starting SCPI loop...\r\n");
