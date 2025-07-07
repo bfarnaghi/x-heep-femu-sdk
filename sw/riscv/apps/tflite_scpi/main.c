@@ -27,11 +27,6 @@ extern void tee_uart_putchar(uint8_t c);
 extern uint8_t tee_uart_getchar(void);            
 extern void scpi_infer_dispatch(const uint8_t *buf, size_t len);  /* glue: SCPI+infer+send */
 
-/* --------  DATA THE USER IS ALLOWED TO READ  ------------------- */
-__attribute__((section(".user_data")))
-int8_t  g_user_result[16];
-__attribute__((section(".user_data")))
-static uint8_t g_user_input[lenet_input_data_size];
 /* linker symbols exported above */
 extern uint8_t __user_start, __user_end;
 extern uint8_t __user_stack_top;
@@ -48,46 +43,9 @@ scpi_result_t __attribute__((noinline)) InferExample(scpi_t * context) {
   const char *out;
   size_t len;
   const int8_t *data = lenet_input_data;
-    
-  /* ── 1. enable cycle & instret counters for lower priv-levels (if ever needed) ── */
-    __asm__ volatile (
-        "li   t0, 0x5\n"          /* bit0 = CY, bit2 = IR                    */
-        "csrs mcounteren, t0\n"   /* set bits, leave any others untouched    */
-    );
-  /* ── 2. snapshot “start” values ── */
-    uint32_t start_c_lo, start_c_hi;
-    uint32_t start_i_lo, start_i_hi;
-    __asm__ volatile (
-        "csrr %0, mcycle      \n"
-        "csrr %1, mcycleh     \n"
-        "csrr %2, minstret    \n"
-        "csrr %3, minstreth   \n"
-        : "=r"(start_c_lo), "=r"(start_c_hi),
-          "=r"(start_i_lo), "=r"(start_i_hi)
-    );
-  /* ── 3. run the inference ── */  
+
   int a = infer((const char *) data, lenet_input_data_size, &out, &len);
-  /* ── 4. snapshot “end” values ── */
-    uint32_t end_c_lo, end_c_hi;
-    uint32_t end_i_lo, end_i_hi;
-    __asm__ volatile (
-        "csrr %0, mcycle      \n"
-        "csrr %1, mcycleh     \n"
-        "csrr %2, minstret    \n"
-        "csrr %3, minstreth   \n"
-        : "=r"(end_c_lo), "=r"(end_c_hi),
-          "=r"(end_i_lo), "=r"(end_i_hi)
-    );
-  /* ── 5. compute 64-bit deltas ── */
-    uint64_t cycles = (((uint64_t)end_c_hi << 32) | end_c_lo) -
-                      (((uint64_t)start_c_hi << 32) | start_c_lo);
-    uint64_t insts  = (((uint64_t)end_i_hi << 32) | end_i_lo) -
-                      (((uint64_t)start_i_hi << 32) | start_i_lo);
-    //printf("Cycles:       hi=0x%lx lo=0x%08lx\r\n",
-       //(unsigned long)(cycles >> 32), (unsigned long)(cycles & 0xFFFFFFFF));
-    //printf("Instructions: hi=0x%lx lo=0x%08lx\r\n",
-       //(unsigned long)(insts  >> 32), (unsigned long)(insts  & 0xFFFFFFFF));
-  /* ── 6. original SCPI output ── */  
+
   if (a == 0) {
     SCPI_ResultArrayInt8(context, (const int8_t *) out, len, SCPI_FORMAT_ASCII);
   } else {
@@ -104,7 +62,7 @@ scpi_result_t __attribute__((noinline)) InferData(scpi_t * context) {
   const int8_t *scpi_out;
   size_t scpi_len;
   SCPI_ParamArbitraryBlock(context, &scpi_out, &scpi_len, true);
-  //printf("Read: %d bytes\r\n", scpi_len);
+  printf("Read: %d bytes\r\n", scpi_len);
   memcpy(tflite_input_data, scpi_out, scpi_len);
 
   int a = infer((const char *) tflite_input_data, lenet_input_data_size, &out, &out_len);
@@ -167,60 +125,55 @@ scpi_error_t scpi_error_queue_data[SCPI_ERROR_QUEUE_SIZE];
 
 __attribute__((section(".user_data")))
 static int modifier = 0;
+__attribute__((section(".user_data")))
+uint32_t counters[4];
 
 __attribute__((section(".user_text"), aligned(4), noinline))
-size_t __attribute__((noinline)) uart_gets(char *buf, size_t len) {
-    size_t i = 0;
-    while (i < len - 1) {
-        uint8_t c;
-        c = tee_uart_getchar();
-        if (c == '\\') {
-            if (!modifier) modifier = 1;
-            else {
-                buf[i] = c;
-                i++;
-                modifier = 0;
+size_t __attribute__((noinline)) user_uart_loop(char *buf, size_t len) {
+    
+    while (!exit_scpi) {
+        size_t i = 0;
+        while (i < len - 1) {
+            uint8_t c;
+            c = tee_uart_getchar();
+            if (c == '\\') {
+                if (!modifier) modifier = 1;
+                else {
+                    buf[i] = c;
+                    i++;
+                    modifier = 0;
+                }
+                continue;
             }
-            continue;
-        }
-        #if ECHO
-        tee_uart_putchar(c);
-        if (c == '\n') tee_uart_putchar('\r');
-        else if (c == '\r') tee_uart_putchar('\n');
-        #endif
-        if (c == '\n' || c == '\r') {
-            if (modifier) {
-                buf[i] = c;
-                i++;
-                modifier = 0;
+            #if ECHO
+            tee_uart_putchar(c);
+            if (c == '\n') tee_uart_putchar('\r');
+            else if (c == '\r') tee_uart_putchar('\n');
+            #endif
+            if (c == '\n' || c == '\r') {
+                if (modifier) {
+                    buf[i] = c;
+                    i++;
+                    modifier = 0;
+                } else {
+                    buf[i] = '\0';
+                    break;
+                }
             } else {
-                buf[i] = '\0';
-                break;
+                buf[i] = c;
+                i++;
+                modifier = 0;
             }
-        } else {
-            buf[i] = c;
-            i++;
-            modifier = 0;
+        }
+
+        if (i > 0) {
+            //tee_read_counters_arr(counters);
+            tee_infer(buf, i);
+            //tee_read_counters_arr(counters);
+            //tee_read_counters_arr(counters);
         }
     }
-    //tee_uart_putchar('4');
-    if (i > 0) {
-        //tee_uart_putchar('6');
-        tee_infer(buf, i);
-        while (1);
-    }
-    return i;
-}
-
-__attribute__((section(".user_text"), aligned(4), noinline))
-void __attribute__((noinline)) user_uart_loop(uint8_t *buf, size_t len) {
-  while (!exit_scpi) {
-    size_t n = uart_gets((char *)buf, len);
-    if (n > 0) {
-      tee_infer(buf, n);
-    }
-  }
-  while (1);
+    while (1);
 }
 
 void switch_to_user_mode() {
@@ -231,10 +184,10 @@ void switch_to_user_mode() {
         "la t0, user_uart_loop     \n"  // Load user function address
         "csrw mepc, t0             \n"  // Set MEPC 
 
-        "la sp, __user_stack_top   \n"  
-        //"li t2, 4096               \n"  
-        //"add sp, sp, t2            \n"  
-
+        "la sp, __user_stack_top   \n"  /* TODO: Stack doesn't work. return form a functoin -> fault*/
+        "li t2, 4096               \n"  
+        "add sp, sp, t2            \n"  
+        
         /* Clear MPP, optionally set MPIE */
         "csrr t0,  mstatus\n"
         "li   t1, ~(3 << 11)\n"
@@ -276,14 +229,6 @@ void pmp_setup(void)
         "csrs pmpcfg0, t0\n\t"             /* program **entry 1** cfg    */
         "fence.i\n\t"
     );
-//     uint32_t cfg;
-//     __asm__ volatile("csrr %0, pmpcfg0" : "=r"(cfg));
-//     printf("pmpcfg0: 0x%08x\n", cfg);
-
-//     uint32_t addr0, addr1;
-//     __asm__ volatile("csrr %0, pmpaddr0" : "=r"(addr0));
-//     __asm__ volatile("csrr %0, pmpaddr1" : "=r"(addr1));
-//     printf("pmpaddr0: 0x%08x, pmpaddr1: 0x%08x\n", addr0, addr1);
 }
 
 int main() {

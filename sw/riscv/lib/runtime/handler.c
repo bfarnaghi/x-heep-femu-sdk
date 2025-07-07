@@ -63,20 +63,63 @@ __attribute__((weak, aligned(4))) void handler_exception(void) {
       handler_ecall();
       break;
     case uECall:
+
+      /* ------------ make room and save ra + gp + tp + s0–s11 ------------- */
+    asm volatile(
+        "addi   sp,  sp,  -60\n"   /* 15×4 = 60 bytes                     */
+        "sw     ra,  56(sp)\n"
+        "sw     gp,  52(sp)\n"
+        "sw     tp,  48(sp)\n"
+        "sw     s0,  44(sp)\n"
+        "sw     s1,  40(sp)\n"
+        "sw     s2,  36(sp)\n"
+        "sw     s3,  32(sp)\n"
+        "sw     s4,  28(sp)\n"
+        "sw     s5,  24(sp)\n"
+        "sw     s6,  20(sp)\n"
+        "sw     s7,  16(sp)\n"
+        "sw     s8,  12(sp)\n"
+        "sw     s9,   8(sp)\n"
+        "sw     s10,  4(sp)\n"
+        "sw     s11,  0(sp)\n"
+        ::: "memory");
       //---------------------------
-      uint32_t syscall_id,a1;
+      uint32_t syscall_id;
+      uint32_t   a1;
       uintptr_t  a0;
       asm volatile("mv %0, a0" : "=r"(a0));
       asm volatile("mv %0, a1" : "=r"(a1));
       asm volatile("mv %0, a7" : "=r"(syscall_id));
+          
       //---------------------------
       handler_user_ecall(syscall_id,a0,a1);
       //---------------------------
+ 
       uintptr_t mepc;
       asm volatile("csrr %0, mepc" : "=r"(mepc));
       uint16_t instr = *(uint16_t *)mepc;  // read instruction at trap address
       mepc += (instr & 0x3) == 0x3 ? 4 : 2;
       asm volatile("csrw mepc, %0" :: "r"(mepc));
+          /* ----------------------- restore the frame ------------------------- */
+    asm volatile(
+        "lw     s11,  0(sp)\n"
+        "lw     s10,  4(sp)\n"
+        "lw     s9,   8(sp)\n"
+        "lw     s8,  12(sp)\n"
+        "lw     s7,  16(sp)\n"
+        "lw     s6,  20(sp)\n"
+        "lw     s5,  24(sp)\n"
+        "lw     s4,  28(sp)\n"
+        "lw     s3,  32(sp)\n"
+        "lw     s2,  36(sp)\n"
+        "lw     s1,  40(sp)\n"
+        "lw     s0,  44(sp)\n"
+        "lw     tp,  48(sp)\n"
+        "lw     gp,  52(sp)\n"
+        "lw     ra,  56(sp)\n"
+        "addi   sp,  sp,  60\n"
+        ::: "memory");
+          
       asm volatile("mret");
       break;
       //---------------------------
@@ -233,13 +276,11 @@ __attribute__((weak)) void handler_user_ecall(uint32_t syscall_id,uintptr_t  ptr
     case TEE_EC_INFER:
         const char *input = (const char *)ptr;
         if (len > 0) {
-            //printf("Got command\r\n");
+            printf("Got command\r\n");
             SCPI_Input(&scpi_context, input, 17);
             SCPI_Input(&scpi_context, "\r\n", 2);
         }
         SCPI_Flush(&scpi_context);
-          //printf("a0: %x\r\n", (unsigned int)ptr);
-          //printf("a1: %x\r\n", len);
         break;
     
     case TEE_EC_UART_PUTCHAR: 
@@ -251,7 +292,30 @@ __attribute__((weak)) void handler_user_ecall(uint32_t syscall_id,uintptr_t  ptr
       uart_getchar(&uart, &c);
       asm volatile("mv a0, %0" :: "r"(c));  // return value in a0
       break;
-          
+    
+    case TEE_EC_RDCOUNTERS: 
+        /* arguments from user */
+        uint32_t *user_buf = (uint32_t *)ptr;    /* a0 */
+        /* a1 is ‘len’ – ignored here or check ==4 */
+
+        /* snapshot performance counters */
+        uint32_t c_lo, c_hi, i_lo, i_hi;
+        asm volatile (
+            "csrr %0, mcycle   \n"
+            "csrr %1, mcycleh  \n"
+            "csrr %2, minstret \n"
+            "csrr %3, minstreth"
+            : "=r"(c_lo), "=r"(c_hi), "=r"(i_lo), "=r"(i_hi));
+
+         printf("%lx\n\r",c_lo);
+         printf("%lx\n\r",c_hi);
+         printf("%lx\n\r",i_lo);
+         printf("%lx\n\r",i_hi);
+
+        /* optionally return 0 in a0 */
+        asm volatile ("" :: "r"(0) : "a0");
+    break;
+              
     default:
         printf("[M] Unknown syscall ID: %u\n", syscall_id);
         while (1);
