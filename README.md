@@ -6,7 +6,7 @@ This repository is based on [x-heep-femu-sdk](https://github.com/esl-epfl/x-heep
 
 ## 🛠️ Custom Modifications in This Version
 
-This fork includes hardware and software modifications focused on pyisical memory protection using the X-HEEP platform.
+This fork includes hardware and software modifications focused on Physical Memory Protection using the X-HEEP platform.
 
 ### ✅ Hardware Configuration
 - **Core:** [cv32e20](https://github.com/openhwgroup/cv32e20) RISC-V core
