@@ -1,0 +1,68 @@
+--- APPLICATION OUTPUT ---
+
+Initializing peripherals...
+Initialized soc_ctrl
+soc_ctrl.base_addr: 0x20000000
+Initialized UART
+uart.base_addr: 0x200b0000
+uart.baudrate: 115200
+uart.clk_freq_hz: 20000000
+Initialized SCPI
+Available SCPI commands:
+NN:INFEr:EXAMple?
+NN:INFEr:DATA?
+EXT
+init
+Initialized TFLite
+Starting SCPI loop...
+
+
+NN:INFEr:EXAMple?
+-128,-128,116,-126,-128,-128,-128,-128,-118,-128
+Δcycles    hi=00000000 lo=065be41a
+Δinstr     hi=00000000 lo=03142b33
+NN:INFEr:EXAMple?
+-128,-128,116,-126,-128,-128,-128,-128,-118,-128
+Δcycles    hi=00000000 lo=065be372
+Δinstr     hi=00000000 lo=03142ae5
+NN:INFEr:EXAMple?
+-128,-128,116,-126,-128,-128,-128,-128,-118,-128
+Δcycles    hi=00000000 lo=065be369
+Δinstr     hi=00000000 lo=03142ae1
+NN:INFEr:EXAMple?
+-128,-128,116,-126,-128,-128,-128,-128,-118,-128
+Δcycles    hi=00000000 lo=065be414
+Δinstr     hi=00000000 lo=03142b2d
+NN:INFEr:EXAMple?
+-128,-128,116,-126,-128,-128,-128,-128,-118,-128
+Δcycles    hi=00000000 lo=065be372
+Δinstr     hi=00000000 lo=03142ae5
+NN:INFEr:EXAMple?
+-128,-128,116,-126,-128,-128,-128,-128,-118,-128
+Δcycles    hi=00000000 lo=065be369
+Δinstr     hi=00000000 lo=03142ae1
+NN:INFEr:EXAMple?
+-128,-128,116,-126,-128,-128,-128,-128,-118,-128
+Δcycles    hi=00000000 lo=065be414
+Δinstr     hi=00000000 lo=03142b2d
+NN:INFEr:EXAMple?
+-128,-128,116,-126,-128,-128,-128,-128,-118,-128
+Δcycles    hi=00000000 lo=065be414
+Δinstr     hi=00000000 lo=03142b2d
+NN:INFEr:EXAMple?
+-128,-128,116,-126,-128,-128,-128,-128,-118,-128
+Δcycles    hi=00000000 lo=065be372
+Δinstr     hi=00000000 lo=03142ae5
+NN:INFEr:EXAMple?
+-128,-128,116,-126,-128,-128,-128,-128,-118,-128
+Δcycles    hi=00000000 lo=065be372
+Δinstr     hi=00000000 lo=03142ae5
+
+------------------------------
+| Metric                   | Value                     |
+| ------------------------ | ------------------------- |
+| **Average cycles**       | 106,541,213               |
+| **Average instructions** | 51,335,041                |
+| **Average CPI**          | **2.08**                  |
+| Min/Max cycles           | 106,541,161 – 106,541,338 |
+| Min/Max instructions     | 51,335,009 – 51,335,091   |

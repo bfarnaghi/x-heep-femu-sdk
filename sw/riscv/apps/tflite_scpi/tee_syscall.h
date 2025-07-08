@@ -57,14 +57,13 @@ static inline uint8_t tee_uart_getchar(void)
 }
 
 __attribute__((section(".user_text"), aligned(4), noinline))
-static inline void tee_read_counters_arr(const void *out)
+static inline void tee_read_counters_arr(void)
 {
     register uint32_t syscall_id __asm__("a7") = TEE_EC_RDCOUNTERS;  
-    register const uint32_t *p __asm__("a0") = out;
 
     __asm__ volatile (
         "ecall"
-        :: "r" (syscall_id), "r" (p)
+        :: "r" (syscall_id)
         : "memory"
     );
 }

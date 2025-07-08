@@ -6,7 +6,6 @@
 #include "soc_ctrl.h"
 #include "core_v_mini_mcu.h"
 #include "mmio.h"
-#include "tee_syscall.h"
 
 #define ECHO 1
 
@@ -16,36 +15,15 @@
 #define SCPI_IDN4 "01-02"
 
 volatile soc_ctrl_t soc_ctrl;
-volatile scpi_t scpi_context;
-/* -------------------------------------------------------------- */
-//__attribute__((section(".user_data")))
 volatile uart_t uart;
-
-__attribute__((section(".user_data")))
+volatile scpi_t scpi_context;
 volatile int exit_scpi = 0;
 
-__attribute__((section(".user_data")))
-char buffer[2048];
-
-/* linker symbols exported above */
-extern uint8_t __user_start, __user_end;
-extern uint8_t __user_stack_top;
-extern uint8_t __user_text_start, __user_text_end;
-extern uint8_t __user_data_start; 
-/* -------------------------------------------------------------- */
-void __attribute__((noinline)) SCPI_from_user(const char *buf, size_t len) {
-  SCPI_Input(&scpi_context, buf, len);
-  SCPI_Input(&scpi_context, "\r\n", 2);
-  SCPI_Flush(&scpi_context);
-}
-/* -------------------------------------------------------------- */
-scpi_result_t __attribute__((noinline)) InferExample(scpi_t * context) { 
+scpi_result_t __attribute__((noinline)) InferExample(scpi_t * context) {
   const char *out;
   size_t len;
   const int8_t *data = lenet_input_data;
-
   int a = infer((const char *) data, lenet_input_data_size, &out, &len);
-
   if (a == 0) {
     SCPI_ResultArrayInt8(context, (const int8_t *) out, len, SCPI_FORMAT_ASCII);
   } else {
@@ -81,7 +59,7 @@ scpi_result_t __attribute__((noinline))  Exit(scpi_t * context) {
 }
 
 volatile scpi_command_t scpi_commands[] = {
-  { "NN:INFEr:EXAMple?", InferExample, 0},
+	{ "NN:INFEr:EXAMple?", InferExample, 0},
   { "NN:INFEr:DATA?", InferData, 0},
   { "EXT", Exit, 0},
 	SCPI_CMD_LIST_END
@@ -123,107 +101,112 @@ static char scpi_input_buffer[SCPI_INPUT_BUFFER_LENGTH];
 #define SCPI_ERROR_QUEUE_SIZE 17
 scpi_error_t scpi_error_queue_data[SCPI_ERROR_QUEUE_SIZE];
 
-__attribute__((section(".user_data")))
 static int modifier = 0;
 
-__attribute__((section(".user_text"), aligned(4), noinline))
-size_t __attribute__((noinline)) user_uart_loop(char *buf, size_t len) {
-    
-    while (!exit_scpi) {
-        size_t i = 0;
-        while (i < len - 1) {
-            uint8_t c;
-            c = tee_uart_getchar();
-            if (c == '\\') {
-                if (!modifier) modifier = 1;
-                else {
-                    buf[i] = c;
-                    i++;
-                    modifier = 0;
-                }
-                continue;
-            }
-            #if ECHO
-            tee_uart_putchar(c);
-            if (c == '\n') tee_uart_putchar('\r');
-            else if (c == '\r') tee_uart_putchar('\n');
-            #endif
-            if (c == '\n' || c == '\r') {
-                if (modifier) {
-                    buf[i] = c;
-                    i++;
-                    modifier = 0;
-                } else {
-                    buf[i] = '\0';
-                    break;
-                }
-            } else {
+size_t __attribute__((noinline)) uart_gets(uart_t *uart, char *buf, size_t len) {
+    size_t i = 0;
+    while (i < len - 1) {
+        uint8_t c;
+        uart_getchar(uart, &c);
+        if (c == '\\') {
+            if (!modifier) modifier = 1;
+            else {
                 buf[i] = c;
                 i++;
                 modifier = 0;
             }
+            continue;
         }
-
-        if (i > 0) {
-            tee_read_counters_arr();
-            tee_infer(buf, i);
-            tee_read_counters_arr();
-            tee_read_counters_arr();
+        #if ECHO
+        uart_putchar(uart, c);
+        if (c == '\n') uart_putchar(uart, '\r');
+        else if (c == '\r') uart_putchar(uart, '\n');
+        #endif
+        if (c == '\n' || c == '\r') {
+            if (modifier) {
+                buf[i] = c;
+                i++;
+                modifier = 0;
+            } else {
+                buf[i] = '\0';
+                break;
+            }
+        } else {
+            buf[i] = c;
+            i++;
+            modifier = 0;
         }
     }
-    while (1);
+    return i;
 }
 
-void switch_to_user_mode() {
-    __asm__ volatile (
-        "la   a0,  buffer      \n"   /* buf  = &buffer[0]  */
-        "li   a1,  2048        \n"   /* len  = 2048        */
-        
-        "la t0, user_uart_loop     \n"  // Load user function address
-        "csrw mepc, t0             \n"  // Set MEPC 
-
-        "la sp, __user_stack_top   \n" 
-        "li t2, -16                \n"  
-        "add sp, sp, t2            \n"  
-        
-        /* Clear MPP, optionally set MPIE */
-        "csrr t0,  mstatus\n"
-        "li   t1, ~(3 << 11)\n"
-        "and  t0, t0, t1\n"
-        "csrw mstatus, t0\n"
-
-        "mret                      \n"  
-        
-        :
-        :
-        : "t0", "t1", "memory"
-    );
+static inline void read_mcycle(uint32_t *hi, uint32_t *lo)
+{
+    uint32_t h0, l, h1;
+    do {
+        __asm__ volatile ("csrr %0, mcycleh" : "=r"(h0));
+        __asm__ volatile ("csrr %0, mcycle"  : "=r"(l));
+        __asm__ volatile ("csrr %0, mcycleh" : "=r"(h1));
+    } while (h0 != h1);
+    *hi = h1;
+    *lo = l;
 }
 
+static inline void read_minstret(uint32_t *hi, uint32_t *lo)
+{
+    uint32_t h0, l, h1;
+    do {
+        __asm__ volatile ("csrr %0, minstreth" : "=r"(h0));
+        __asm__ volatile ("csrr %0, minstret"  : "=r"(l));
+        __asm__ volatile ("csrr %0, minstreth" : "=r"(h1));
+    } while (h0 != h1);
+    *hi = h1;
+    *lo = l;
+}
+static inline void sub_u64(uint32_t a_hi, uint32_t a_lo,
+                           uint32_t b_hi, uint32_t b_lo,
+                           uint32_t *d_hi, uint32_t *d_lo)
+{
+    uint32_t lo = a_lo - b_lo;
+    uint32_t hi = a_hi - b_hi - (a_lo < b_lo);  /* borrow */
+    *d_hi = hi;
+    *d_lo = lo;
+}
 void __attribute__((noinline)) uart_scpi(scpi_t * context, uart_t * uart) {
+  char buffer[2048];
   printf("Starting SCPI loop...\r\n");
-  switch_to_user_mode();
+    while (!exit_scpi) {
+        size_t len = uart_gets(uart, buffer, sizeof(buffer));
+        
+        uint32_t c0_hi, c0_lo, i0_hi, i0_lo;
+        uint32_t c1_hi, c1_lo, i1_hi, i1_lo;
+        uint32_t dC_hi, dC_lo, dI_hi, dI_lo;
+        
+        read_mcycle(&c0_hi, &c0_lo);
+        read_minstret(&i0_hi, &i0_lo);
+        
+        if (len > 0) {
+            //printf("Got command\r\n");
+            SCPI_Input(context, buffer, len);
+            SCPI_Input(context, "\r\n", 2);
+        }
+        SCPI_Flush(context);
+        
+        read_mcycle(&c1_hi, &c1_lo);
+        read_minstret(&i1_hi, &i1_lo);
+        
+        sub_u64(c1_hi, c1_lo, c0_hi, c0_lo, &dC_hi, &dC_lo);
+        sub_u64(i1_hi, i1_lo, i0_hi, i0_lo, &dI_hi, &dI_lo);
+        
+        printf("Δcycles    hi=%08lx lo=%08lx\r\n", dC_hi, dC_lo);
+        printf("Δinstr     hi=%08lx lo=%08lx\r\n", dI_hi, dI_lo);
+    }
 }
 
 mmio_region_t mmio_region_from_adr(uintptr_t address) {
   return (mmio_region_t){
       .base = (volatile void *)address,
   };
-}
-
-void pmp_setup(void)
-{
-    __asm__ volatile(
-        "csrw  pmpcfg0, zero\n\t"          /* disable entry 0 first      */
-        "li    t0,   0x1e000\n\t"          /* 0x00078000 >> 2 → bottom   */
-        "csrw  pmpaddr0, t0\n\t"
-        "li    t0,   0x20000\n\t"          /* 0x00080000 >> 2 → top      */
-        "csrw  pmpaddr1, t0\n\t"           /* entry 1 addr               */
-        "li    t0,   0x0f\n\t"             /* TOR | R | W | X | L        */
-        "slli t0, t0, 8\n\t"
-        "csrs pmpcfg0, t0\n\t"             /* program **entry 1** cfg    */
-        "fence.i\n\t"
-    );
 }
 
 int main() {
@@ -250,7 +233,7 @@ int main() {
               scpi_input_buffer, SCPI_INPUT_BUFFER_LENGTH,
               scpi_error_queue_data, SCPI_ERROR_QUEUE_SIZE);
 
-  printf("Initialized x.ruSCPI\r\n");
+  printf("Initialized SCPI\r\n");
   // Print available SCPI commands
   printf("Available SCPI commands:\r\n");
   for (int i = 0; scpi_commands[i].pattern != NULL; i++) {
@@ -258,9 +241,6 @@ int main() {
   }
   init_tflite();
   printf("Initialized TFLite\r\n");
-
-  pmp_setup();
-
   uart_scpi(&scpi_context, &uart);
 
   return 0;
